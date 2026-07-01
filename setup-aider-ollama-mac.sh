@@ -205,61 +205,181 @@ print_ok "Launcher created at $LAUNCHER"
 
 # ─── Step 6b: Create ollama-aider interactive launcher ────────────────────
 
-cat > "$BIN_DIR/ollama-aider" <<'OLLAMA_AIDER_SCRIPT'
+# Use a temp file to build the script (allows variable expansion for VENV_DIR/CONFIG_FILE paths)
+OLLAMA_AIDER_SCRIPT="$BIN_DIR/ollama-aider"
+
+cat > "$OLLAMA_AIDER_SCRIPT" << SCRIPT_HEAD
 #!/bin/zsh
 # ollama-aider — smart launcher: auto-detects project or shows menu
+# Scans both ~/Local-Projects/ and ~/GitHub-Clones/ for projects
 
-PROJECTS_DIR="$HOME/Local-Projects"
-EXCLUDE_DIRS=("Archive" "bin" "aider-env")
+set -o pipefail
+
+readonly PROJECTS_DIR="\$HOME/Local-Projects"
+readonly GITHUB_DIR="\$HOME/GitHub-Clones"
+readonly EXCLUDE_DIRS=("Archive" "bin" "aider-env")
+readonly CONFIG_FILE="$CONFIG_FILE"
+readonly AVAILABLE_MODELS=("gemma3:4b" "gemma3:12b" "gemma3:27b" "qwen3-coder:30b")
+
+C_RESET="\033[0m"; C_BOLD="\033[1m"; C_GREEN="\033[32m"
+C_YELLOW="\033[33m"; C_CYAN="\033[36m"; C_BLUE="\033[34m"; C_RED="\033[31m"
+
+print_info()    { print "\${C_BLUE}ℹ\${C_RESET} \$*"; }
+print_success() { print "\${C_GREEN}✓\${C_RESET} \$*"; }
+print_error()   { print "\${C_RED}✗\${C_RESET} \$*" >&2; }
+print_warning() { print "\${C_YELLOW}⚠\${C_RESET} \$*"; }
+print_section() { print ""; print "\${C_BOLD}\${C_CYAN}» \$*\${C_RESET}"; }
+
+cleanup() {
+  local exit_code=\$?
+  [ \$exit_code -eq 130 ] && { print ""; print_info "Cancelled"; }
+  exit \$exit_code
+}
+trap cleanup EXIT INT
 
 is_project() {
-  local dir="${1:-.}"
-  [ -d "$dir/.git" ] && return 0
-  [ -f "$dir/package.json" ] && return 0
-  [ -f "$dir/main.py" ] && return 0
-  [ -f "$dir/README.md" ] && return 0
-  [ -f "$dir/Makefile" ] && return 0
-  [ -f "$dir/pyproject.toml" ] && return 0
+  local dir="\${1:-.}"
+  [[ "\$(realpath "\$dir")" == "\$HOME" ]] && return 1
+  [ -d "\$dir/.git" ] && return 0
+  [ -f "\$dir/package.json" ] && return 0
+  [ -f "\$dir/main.py" ] && return 0
+  [ -f "\$dir/README.md" ] && return 0
+  [ -f "\$dir/Makefile" ] && return 0
+  [ -f "\$dir/pyproject.toml" ] && return 0
+  [ -f "\$dir/setup.py" ] && return 0
+  [ -f "\$dir/go.mod" ] && return 0
+  [ -f "\$dir/Cargo.toml" ] && return 0
   return 1
 }
 
-launch_aider() {
-  cd "$1" || exit 1
-  source "$PROJECTS_DIR/bin/aider-local" "${@:2}"
+get_current_model() {
+  if [ -f "\$CONFIG_FILE" ]; then
+    python3 -c "import json; print(json.load(open('\$CONFIG_FILE'))['model'])" 2>/dev/null | sed 's/ollama_chat\///'
+  else
+    echo "gemma3:27b"
+  fi
 }
 
-if is_project "." && [[ "$PWD" != "$HOME" ]]; then
-  launch_aider "$PWD" "$@"
-  exit 0
-fi
+switch_model() {
+  local current_model; current_model=\$(get_current_model)
+  print_section "Switch Model"
+  print_info "Current model: \${C_BOLD}\${current_model}\${C_RESET}"
+  print_warning "Changing the model updates it for ALL future sessions until changed again."
+  print ""
+  local i=1
+  for model in "\${AVAILABLE_MODELS[@]}"; do
+    [[ "\$model" == "\$current_model" ]] && print "  \${C_CYAN}\$i)\${C_RESET} \$model \${C_GREEN}(current)\${C_RESET}" || print "  \${C_CYAN}\$i)\${C_RESET} \$model"
+    ((i++))
+  done
+  print "  \${C_CYAN}\$i)\${C_RESET} Enter custom model name"
+  print ""; print "  \${C_CYAN}b)\${C_RESET} Back"; print ""
+  while true; do
+    read -r "selection?Choose model: "
+    [[ "\$selection" == "b" || "\$selection" == "B" ]] && return 1
+    if [[ "\$selection" =~ ^[0-9]+\$ ]]; then
+      local custom_idx=\${#AVAILABLE_MODELS[@]}; ((custom_idx++))
+      if [ "\$selection" -eq "\$custom_idx" ]; then
+        read -r "new_model?Enter model name: "
+        [[ -z "\$new_model" ]] && { print_error "No model entered."; continue; }
+      elif [ "\$selection" -ge 1 ] && [ "\$selection" -le "\${#AVAILABLE_MODELS[@]}" ]; then
+        new_model="\${AVAILABLE_MODELS[\$((selection-1))]}"
+      else
+        print_error "Invalid selection."; continue
+      fi
+      mkdir -p "\$(dirname "\$CONFIG_FILE")"
+      python3 -c "
+import json
+try: config = json.load(open('\$CONFIG_FILE'))
+except: config = {}
+config['model'] = 'ollama_chat/\$new_model'
+json.dump(config, open('\$CONFIG_FILE', 'w'), indent=2)
+"
+      print_success "Model changed to \${C_BOLD}\${new_model}\${C_RESET}"
+      print_info "This will be used for all future Aider sessions."
+      print ""; return 0
+    fi
+    print_error "Invalid input. Please try again."
+  done
+}
 
-echo ""
-echo "  Pick a project:"
-echo ""
-projects=()
-while IFS= read -r dir; do
-  name=$(basename "$dir")
-  skip=0
-  for ex in "${EXCLUDE_DIRS[@]}"; do [[ "$name" == "$ex" ]] && skip=1; done
-  [[ "$name" == .* ]] && skip=1
-  [ $skip -eq 0 ] && projects+=("$dir")
-done < <(find "$PROJECTS_DIR" -maxdepth 1 -mindepth 1 -type d | sort)
+scan_projects() {
+  local scan_dirs=()
+  [ -d "\$PROJECTS_DIR" ] && scan_dirs+=("\$PROJECTS_DIR")
+  if [ -d "\$GITHUB_DIR" ]; then
+    while IFS= read -r subdir; do
+      local name=\$(basename "\$subdir")
+      [[ "\$name" == "Archive" ]] && continue
+      [ -d "\$subdir" ] && scan_dirs+=("\$subdir")
+    done < <(find "\$GITHUB_DIR" -maxdepth 1 -mindepth 1 -type d | sort)
+  fi
+  for scan_dir in "\${scan_dirs[@]}"; do
+    while IFS= read -r dir; do
+      local basename=\$(basename "\$dir")
+      [[ "\$basename" == .* ]] && continue
+      [[ " \${EXCLUDE_DIRS[@]} " =~ " \${basename} " ]] && continue
+      [ -d "\$dir" ] && echo "\$dir"
+    done < <(find "\$scan_dir" -maxdepth 1 -mindepth 1 -type d | sort)
+  done
+}
 
-for i in "${!projects[@]}"; do
-  printf "  %2d) %s\n" "$((i+1))" "$(basename "${projects[$i]}")"
-done
-echo ""
-printf "  %2d) Cancel\n" "$(( ${#projects[@]} + 1 ))"
-echo ""
-printf "  Enter number: "
-read -r choice
+show_menu() {
+  local -a projects project_names selection
+  print_section "Select a Project"
+  while IFS= read -r project; do
+    projects+=("\$project"); project_names+=("\$(basename "\$project")")
+  done < <(scan_projects)
+  if [ \${#projects[@]} -eq 0 ]; then
+    print_error "No projects found. Create a folder in ~/Local-Projects/ or ~/GitHub-Clones/"
+    return 1
+  fi
+  local i=1
+  for name in "\${project_names[@]}"; do print "  \${C_CYAN}\$i)\${C_RESET} \$name"; ((i++)); done
+  print ""; print "  \${C_CYAN}c)\${C_RESET} Custom path"
+  print "  \${C_CYAN}m)\${C_RESET} Switch model (current: \$(get_current_model))"
+  print "  \${C_CYAN}q)\${C_RESET} Cancel"; print ""
+  while true; do
+    read -r "selection?Choose: "
+    [[ "\$selection" == "q" || "\$selection" == "Q" ]] && return 1
+    if [[ "\$selection" == "m" || "\$selection" == "M" ]]; then switch_model; show_menu; return \$?; fi
+    if [[ "\$selection" == "c" || "\$selection" == "C" ]]; then
+      read -r "custom_path?Enter path: "
+      custom_path="\${custom_path/#\~/$HOME}"
+      if [ ! -d "\$custom_path" ]; then print_error "Directory not found: \$custom_path"; continue; fi
+      selected_project="\$custom_path"; return 0
+    fi
+    if [[ "\$selection" =~ ^[0-9]+\$ ]]; then
+      local idx=\$((selection - 1))
+      if [ \$idx -lt 0 ] || [ \$idx -ge \${#projects[@]} ]; then print_error "Invalid selection."; continue; fi
+      selected_project="\${projects[\$idx]}"; return 0
+    fi
+    print_error "Invalid input. Please try again."
+  done
+}
 
-[[ "$choice" =~ ^[0-9]+$ ]] || { echo "Invalid input."; exit 1; }
-[ "$choice" -eq "$(( ${#projects[@]} + 1 ))" ] && { echo "Cancelled."; exit 0; }
-( [ "$choice" -lt 1 ] || [ "$choice" -gt "${#projects[@]}" ] ) && { echo "Invalid selection."; exit 1; }
+launch_aider() {
+  local target_dir="\$1"
+  [ ! -d "\$target_dir" ] && { print_error "Directory not found: \$target_dir"; return 1; }
+  print_success "Launching Aider in: \${C_BOLD}\$(basename "\$target_dir")\${C_RESET}"; print ""
+  cd "\$target_dir" || { print_error "Failed to cd: \$target_dir"; return 1; }
+  if [ -x "\$PROJECTS_DIR/bin/aider-local" ]; then
+    exec "\$PROJECTS_DIR/bin/aider-local" "\$@"
+  else
+    print_error "aider-local not found: \$PROJECTS_DIR/bin/aider-local"; return 1
+  fi
+}
 
-launch_aider "${projects[$((choice-1))]}" "$@"
-OLLAMA_AIDER_SCRIPT
+main() {
+  if is_project "."; then
+    print_success "Detected project in current directory"
+    launch_aider "." "\$@"
+  else
+    show_menu || return 1
+    launch_aider "\$selected_project" "\$@"
+  fi
+}
+
+main "\$@"
+SCRIPT_HEAD
 
 chmod +x "$BIN_DIR/ollama-aider"
 print_ok "Interactive launcher created at $BIN_DIR/ollama-aider"

@@ -108,7 +108,12 @@ After reloading, type `ollama-aider` from any terminal to get started.
    ```bash
    ollama-aider
    ```
-   If you are already inside a project folder, Aider launches immediately. If not, you will see a menu to pick a project — just type the number and press Enter.
+   If you are already inside a project folder, Aider launches immediately. If not, you will see a menu listing all projects from `~/Local-Projects/` and `~/GitHub-Clones/`. Type a number and press Enter.
+
+   From the menu you can also:
+   - Type `m` to switch which AI model Aider uses (persists for all future sessions)
+   - Type `c` to enter a custom folder path
+   - Type `q` to cancel
 
    You can also use `aider-local` directly if you prefer to navigate to the project folder yourself first.
 
@@ -116,18 +121,38 @@ After reloading, type `ollama-aider` from any terminal to get started.
 
 6. Exit Aider by typing `/exit` or pressing Ctrl+C.
 
+## Where Your Projects Appear in the Menu
+
+When you run `ollama-aider` from outside a project folder, it shows a menu of all available projects. It scans **two locations automatically:**
+
+| Folder | What Goes Here |
+|--------|----------------|
+| `~/Local-Projects/` | Projects you created locally (not from GitHub) |
+| `~/GitHub-Clones/` | Repos you cloned from GitHub |
+
+If you organize your GitHub clones into subfolders (e.g. `~/GitHub-Clones/myusername/` or `~/GitHub-Clones/work-account/`), `ollama-aider` will scan one level deep inside each subfolder and list those projects too.
+
+**To add a project to the menu:** simply put it (or clone it) into one of those two locations. No configuration needed — the menu rebuilds automatically.
+
+**To hide a project from the menu:** move it into an `Archive/` subfolder (e.g. `~/Local-Projects/Archive/old-project`). Archive folders are skipped automatically.
+
 ## Architecture
 
 ```
 ~/
-├── Local-Projects/               # All your active projects
+├── Local-Projects/               # Local projects you created
 │   ├── aider-env/               # Python virtual environment (created by installer)
 │   └── bin/
-│       └── aider-local          # Global launcher script
-├── .aider/
-│   ├── AIDER_INSTRUCTIONS.md     # System instructions for Aider behavior
-│   └── config.json               # Stores your selected model
-└── GitHub-Clones/               # All cloned GitHub repositories
+│       ├── aider-local          # Global launcher script
+│       └── ollama-aider         # Smart menu launcher
+├── GitHub-Clones/               # Repos cloned from GitHub
+│   ├── myusername/              # Optional: per-account subfolder
+│   │   └── my-repo/
+│   └── work-account/
+│       └── work-repo/
+└── .aider/
+    ├── AIDER_INSTRUCTIONS.md     # System instructions for Aider behavior
+    └── config.json               # Stores your selected model
 ```
 
 ## Choosing a Model
@@ -141,7 +166,9 @@ Select a model based on available RAM:
 | 32–64 GB         | `gemma3:27b`        | Stronger reasoning             |
 | 64+ GB           | `qwen3-coder:30b`   | Specialized for code           |
 
-You can re-run the setup script at any time to switch models:
+To switch models without re-running the installer, type `m` from the `ollama-aider` project menu. The change saves immediately and applies to all future sessions.
+
+You can also re-run the setup script at any time:
 ```bash
 bash setup-aider-ollama-mac.sh
 ```
