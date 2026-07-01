@@ -4,7 +4,21 @@ Run an AI coding assistant entirely offline on your Mac using Aider and Ollama.
 
 ## What This Is
 
-Aider is an AI coding assistant that runs in your terminal. Ollama runs LLMs locally on your machine. Together they give you a private, offline AI coding setup — no API keys, no internet dependency, full control.
+Think of this as ChatGPT for code, but running entirely on your computer.
+
+**Ollama** is a tool that downloads and runs AI models (like ChatGPT or Claude) on your Mac. They run in the background and you can talk to them without sending anything to the internet.
+
+**Aider** is a terminal application that acts as your coding assistant. You describe what you want to do, and it reads your code, makes the changes, and saves them directly to your files. No copy-pasting code snippets — it edits files in place.
+
+Together, Ollama + Aider let you use AI to help write code — privately, offline, with no API bills. Everything stays on your machine.
+
+## Why Use This?
+
+- **Private:** Your code never leaves your computer
+- **Free:** No API keys, no monthly charges
+- **Offline:** Works without internet (after initial model download)
+- **Fast:** No round-trip to a cloud API
+- **Control:** Choose which AI model to use based on your Mac's RAM
 
 ## Quick Install (One Command)
 
@@ -138,6 +152,32 @@ This will check:
 - Python and Aider are installed
 - Ollama server is reachable
 - Configuration file is in place
+
+## How It Works (Detailed)
+
+When you type `aider-local`:
+
+1. **Your terminal** runs the `aider-local` command
+2. **Aider activates** by loading the Python virtual environment (this includes the Aider application)
+3. **Aider connects to Ollama** at `http://127.0.0.1:11434` — this is Ollama's address on your computer
+4. **Your AI model loads** into RAM (e.g., gemma3:27b), which is why RAM matters
+5. **Aider loads your instructions** from `~/.aider/AIDER_INSTRUCTIONS.md` — this tells the model it's OK to edit your files
+6. **You type a prompt**, e.g., "Create a function that checks if a number is prime"
+7. **Aider sends your prompt + your current code to the model** (still on your Mac)
+8. **The model thinks through your code** and suggests changes
+9. **Aider applies those changes** directly to your files and shows you what changed
+10. **You can ask follow-up questions** or type `/exit` to quit
+
+Everything in steps 7–10 stays on your machine. No internet request, no trace.
+
+## Limitations
+
+Local AI models are good at coding, but not as smart as cloud-based models:
+- They may miss edge cases you'd catch manually
+- They sometimes over-explain simple changes
+- Complex refactors might need multiple rounds of conversation
+
+**Use it like:** "Aider, help me write this feature" — not "Aider, write my entire app."
 
 ## Troubleshooting
 
