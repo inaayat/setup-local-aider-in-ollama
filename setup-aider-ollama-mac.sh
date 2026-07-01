@@ -358,6 +358,7 @@ show_menu() {
 
 launch_aider() {
   local target_dir="\$1"
+  shift
   [ ! -d "\$target_dir" ] && { print_error "Directory not found: \$target_dir"; return 1; }
   print_success "Launching Aider in: \${C_BOLD}\$(basename "\$target_dir")\${C_RESET}"; print ""
   cd "\$target_dir" || { print_error "Failed to cd: \$target_dir"; return 1; }
