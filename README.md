@@ -1,3 +1,4 @@
+# FAILED - VERY BAD
 # Aider + Ollama on macOS
 
 Run an AI coding assistant entirely offline on your Mac using Aider and Ollama.
